@@ -1,7 +1,20 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { JSONRPC_VERSION } from '../../src/types/constants';
-import { isCallToolResult, isJSONRPCErrorResponse, isJSONRPCResponse, isJSONRPCResultResponse } from '../../src/types/guards';
+import {
+    isCallToolResult,
+    isJSONRPCErrorResponse,
+    isJSONRPCNotification,
+    isJSONRPCRequest,
+    isJSONRPCResponse,
+    isJSONRPCResultResponse
+} from '../../src/types/guards';
+import {
+    JSONRPCErrorResponseSchema,
+    JSONRPCNotificationSchema,
+    JSONRPCRequestSchema,
+    JSONRPCResultResponseSchema
+} from '../../src/types/schemas';
 
 describe('isJSONRPCResponse', () => {
     it('returns true for a valid result response', () => {
@@ -72,6 +85,37 @@ describe('isJSONRPCResponse', () => {
         ];
         for (const v of values) {
             expect(isJSONRPCResponse(v)).toBe(isJSONRPCResultResponse(v) || isJSONRPCErrorResponse(v));
+        }
+    });
+
+    it('short-circuits non-matching envelope shapes without invoking unrelated Zod schemas', () => {
+        const resultSpy = vi.spyOn(JSONRPCResultResponseSchema, 'safeParse');
+        const errorSpy = vi.spyOn(JSONRPCErrorResponseSchema, 'safeParse');
+        const requestSpy = vi.spyOn(JSONRPCRequestSchema, 'safeParse');
+        const notificationSpy = vi.spyOn(JSONRPCNotificationSchema, 'safeParse');
+
+        try {
+            const notification = { jsonrpc: JSONRPC_VERSION, method: 'notifications/initialized' };
+            expect(isJSONRPCResultResponse(notification)).toBe(false);
+            expect(isJSONRPCErrorResponse(notification)).toBe(false);
+            expect(isJSONRPCRequest(notification)).toBe(false);
+            expect(isJSONRPCNotification(notification)).toBe(true);
+
+            expect(resultSpy).not.toHaveBeenCalled();
+            expect(errorSpy).not.toHaveBeenCalled();
+            expect(requestSpy).not.toHaveBeenCalled();
+            expect(notificationSpy).toHaveBeenCalledTimes(1);
+
+            const request = { jsonrpc: JSONRPC_VERSION, id: 1, method: 'tools/list' };
+            expect(isJSONRPCResultResponse(request)).toBe(false);
+            expect(isJSONRPCErrorResponse(request)).toBe(false);
+            expect(isJSONRPCRequest(request)).toBe(true);
+
+            expect(resultSpy).not.toHaveBeenCalled();
+            expect(errorSpy).not.toHaveBeenCalled();
+            expect(requestSpy).toHaveBeenCalledTimes(1);
+        } finally {
+            vi.restoreAllMocks();
         }
     });
 });
